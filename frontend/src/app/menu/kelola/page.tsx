@@ -97,10 +97,6 @@ export default function KelolaMenuPage() {
           {message}
         </div>
       )}
-      
-      <Link href="/menu/input" className="btn btn-success mb-4">
-        + Tambah Menu Baru
-      </Link>
 
       {loading && (
         <div className="text-center my-5">

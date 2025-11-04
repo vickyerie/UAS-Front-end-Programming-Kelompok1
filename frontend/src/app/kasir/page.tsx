@@ -1,12 +1,9 @@
-// File: frontend/src/app/kasir/page.tsx
 "use client";
 
 import { useEffect, useState } from "react";
 
-// URL Backend (Sesuaikan jika port-nya beda)
 const API_URL = 'http://localhost:5000/api';
 
-// Tipe data (sesuai model backend Anda)
 interface Product {
   _id: string;
   name: string;
@@ -25,7 +22,6 @@ interface TransactionItem {
     price: number;
 }
 
-// Fungsi format mata uang
 const formatCurrency = (number: number) => {
   return new Intl.NumberFormat('id-ID', {
     style: 'currency',
@@ -47,14 +43,11 @@ export default function KasirPage() {
   const [amountPaid, setAmountPaid] = useState('');
   const [change, setChange] = useState(0);
 
-  // State untuk Modal QRIS
   const [qrisModal, setQrisModal] = useState<any>(null);
   const [qrisImage, setQrisImage] = useState<string | null>(null);
   const [qrisTotal, setQrisTotal] = useState(0);
   
-  // 1. Inisialisasi Modal Bootstrap di client-side
   useEffect(() => {
-    // Pastikan ini hanya berjalan di client
     if (typeof window !== "undefined") {
       const bootstrap = require("bootstrap/dist/js/bootstrap.bundle.min.js");
       const modalEl = document.getElementById('qrisModal');
@@ -64,15 +57,13 @@ export default function KasirPage() {
     }
   }, []);
 
-  // 2. Fetch produk saat komponen dimuat
   const fetchProducts = async () => {
     try {
       const res = await fetch(`${API_URL}/products`);
       const productResponse = await res.json();
-      const data: Product[] = productResponse.data || []; // Ambil dari 'data'
+      const data: Product[] = productResponse.data || []; 
       setProducts(data);
 
-      // Ambil kategori unik
       const uniqueCategories = ['Semua', ...new Set(data.map(p => p.category))];
       setCategories(uniqueCategories);
     } catch (error) {
@@ -84,25 +75,21 @@ export default function KasirPage() {
     fetchProducts();
   }, []);
 
-  // 3. Hitung ulang total harga saat keranjang berubah
   useEffect(() => {
     const total = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
     setTotalPrice(total);
     calculateChange(total, amountPaid);
   }, [cart, amountPaid]);
 
-  // 4. Fungsi hitung kembalian
   const calculateChange = (total: number, paid: string) => {
     const paidAmount = parseFloat(paid) || 0;
     const newChange = paidAmount - total;
-    setChange(newChange); // Simpan kembalian di state
+    setChange(newChange);
   };
 
-  // 5. Fungsi Logika Keranjang
   const addToCart = (product: Product) => {
     const existingItem = cart.find(item => item._id === product._id);
     
-    // Cek stok terbaru dari state products
     const productInStock = products.find(p => p._id === product._id);
     if (!productInStock || productInStock.stock === 0) {
       alert('Stok produk habis!');
@@ -136,17 +123,13 @@ export default function KasirPage() {
   };
 
 
-  // ===== FUNGSI INI DIPERBAIKI TOTAL =====
-  // 6. Fungsi Menyelesaikan Transaksi
   const completeTransaction = async (method: string) => {
     
-    // A. Siapkan data AGAR SESUAI DENGAN BACKEND
     const cashierName = localStorage.getItem('loggedInUser') || 'Unknown Cashier';
     const paidAmount = (method === 'QRIS') ? totalPrice : (parseFloat(amountPaid) || 0);
     const changeAmount = (method === 'QRIS') ? 0 : change; // Ambil dari state
 
     const transactionData = {
-      // Data ini disesuaikan dengan transaction.model.js
       items: cart.map(item => ({
         productId: item._id, 
         name: item.name,
@@ -154,14 +137,13 @@ export default function KasirPage() {
         quantity: item.quantity,
         subtotal: item.price * item.quantity
       })),
-      total: totalPrice,        // DULU: totalPrice
-      payment: paidAmount,      // DULU: paymentMethod
-      change: changeAmount,     // DULU: tidak ada
-      cashier: cashierName,     // DULU: tidak ada
+      total: totalPrice,
+      payment: paidAmount,
+      change: changeAmount,
+      cashier: cashierName,
     };
 
     try {
-      // B. Kirim transaksi ke backend
       const res = await fetch(`${API_URL}/transactions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -170,37 +152,24 @@ export default function KasirPage() {
 
       if (!res.ok) {
         const errorData = await res.json();
-        // Tampilkan pesan error spesifik dari backend
         throw new Error(errorData.message || 'Gagal menyimpan transaksi'); 
       }
 
-      // C. HAPUS UPDATE STOK DARI FRONTEND
-      // Backend (transactionController.js) Anda sudah
-      // menangani pengurangan stok. Kita HAPUS bagian ini
-      // agar stok tidak berkurang dua kali.
-
-      // D. Reset Tampilan
       alert(`Pembayaran ${method} berhasil!`);
       setCart([]);
       setAmountPaid('');
       setPaymentMethod('Cash');
       
-      // Tutup modal jika terbuka
       if (qrisModal) qrisModal.hide();
       
-      // Ambil ulang data produk (untuk update stok di UI)
       fetchProducts();
 
     } catch (error: any) {
       console.error(error);
-      // Tampilkan error yang jelas ke kasir
       alert(`Terjadi kesalahan: ${error.message}`);
     }
   };
-  // ==========================================
 
-
-  // 7. Fungsi Tombol "Proses Pembayaran"
   const handleProcessPayment = () => {
     if (cart.length === 0) {
       alert('Keranjang masih kosong!');
@@ -216,7 +185,6 @@ export default function KasirPage() {
       completeTransaction('Cash');
 
     } else if (paymentMethod === 'QRIS') {
-      // Tampilkan Modal QRIS
       const qrData = `SIMULASI_BAYAR_KE_KANTIN_SEBESAR_${totalPrice}`;
       setQrisImage(`https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(qrData)}`);
       setQrisTotal(totalPrice);
@@ -224,7 +192,6 @@ export default function KasirPage() {
     }
   };
 
-  // 8. Filter Produk untuk Ditampilkan
   const filteredProducts = products.filter(p => 
     p.stock > 0 &&
     (currentCategory === 'Semua' || p.category === currentCategory) &&
@@ -235,7 +202,6 @@ export default function KasirPage() {
   return (
     <div className="pos-container cashier-container" style={{ padding: '2rem' }}>
       
-      {/* Kolom Produk (Kiri) */}
       <div className="product-pane">
         <header className="content-header" style={{ marginBottom: '1rem', padding: 0 }}>
           <h1>Pilih Menu</h1>

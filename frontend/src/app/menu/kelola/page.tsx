@@ -1,317 +1,297 @@
-'use client';
+"use client";
 
-// Ini adalah kode yang Anda berikan tadi,
-// sekarang ditempatkan di /menu/kelola/page.tsx
+import { useState, useEffect } from "react";
+import Link from "next/link";
 
-import { useState, useEffect } from 'react';
-import {
-  Container,
-  Row,
-  Col,
-  Card,
-  Form,
-  Button,
-  Badge,
-  Table,
-  Modal,
-  Spinner,
-} from 'react-bootstrap';
+const API_URL = "http://localhost:5000/api";
 
 interface Product {
-  _id?: string;
+  _id: string;
   name: string;
   price: number;
   stock: number;
   category: string;
-  isActive?: boolean;
+  image: string;
 }
 
-export default function KelolaMenuPage() { // Nama fungsi bisa diganti
+const formatCurrency = (number: number) => {
+  return new Intl.NumberFormat("id-ID", {
+    style: "currency",
+    currency: "IDR",
+    minimumFractionDigits: 0,
+  }).format(number);
+};
+
+const ContentHeader = ({ title }: { title: string }) => (
+  <header className="content-header">
+    <h1>{title}</h1>
+  </header>
+);
+
+export default function KelolaMenuPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showModal, setShowModal] = useState(false);
-  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
-  const [formData, setFormData] = useState<Product>({
-    name: '',
-    price: 0,
-    stock: 0,
-    category: 'Umum',
-  });
+  const [editModal, setEditModal] = useState<any>(null);
+  const [currentProduct, setCurrentProduct] = useState<any | null>(null);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const bootstrap = require("bootstrap/dist/js/bootstrap.bundle.min.js");
+      const modalEl = document.getElementById("editProductModal");
+      if (modalEl) {
+        setEditModal(new bootstrap.Modal(modalEl));
+      }
+    }
+  }, []);
+
+  const fetchProducts = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/products`);
+      const productResponse = await res.json();
+      if (!productResponse.success)
+        throw new Error(productResponse.message || "Gagal mengambil data produk");
+      setProducts(productResponse.data || []);
+    } catch (error) {
+      console.error("Gagal mengambil produk:", error);
+    }
+    setLoading(false);
+  };
 
   useEffect(() => {
     fetchProducts();
   }, []);
 
-  const fetchProducts = async () => {
-    try {
-      // Pastikan URL ini benar (sesuai Gambar 4, backend di port 5000)
-      const response = await fetch('http://localhost:5000/api/products');
-      const data = await response.json();
-      if (data.success) {
-        setProducts(data.data);
-      }
-    } catch (error) {
-      console.error('Error:', error);
-      alert('Gagal memuat produk');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-
-    if (!formData.name || formData.price <= 0) {
-      alert('Nama dan harga harus diisi!');
-      return;
-    }
-
-    try {
-      const url = editingProduct
-        ? `http://localhost:5000/api/products/${editingProduct._id}`
-        : 'http://localhost:5000/api/products';
-
-      const response = await fetch(url, {
-        method: editingProduct ? 'PUT' : 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData),
-      });
-
-      const data = await response.json();
-
-      if (data.success) {
-        alert(
-          editingProduct
-            ? '✅ Produk berhasil diupdate!'
-            : '✅ Produk berhasil ditambahkan!'
-        );
-        closeModal();
-        fetchProducts();
-      } else {
-        alert('❌ Error: ' + data.message);
-      }
-    } catch (error) {
-      console.error('Error:', error);
-      alert('❌ Gagal menyimpan produk');
-    }
-  };
-
   const handleDelete = async (id: string) => {
-    if (!confirm('Yakin ingin menghapus produk ini?')) return;
+    if (confirm("Apakah Anda yakin ingin menghapus menu ini?")) {
+      try {
+        await fetch(`${API_URL}/products/${id}`, { method: "DELETE" });
+        fetchProducts();
+      } catch (error) {
+        console.error("Gagal menghapus produk:", error);
+      }
+    }
+  };
+
+  const openEditModal = (product: Product) => {
+    setCurrentProduct(product);
+    if (editModal) editModal.show();
+  };
+
+  const handleEditSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!currentProduct) return;
+
+    const dataToSend = {
+      ...currentProduct,
+      price: parseFloat(currentProduct.price) || 0,
+      stock: parseInt(currentProduct.stock) || 0,
+    };
 
     try {
-      const response = await fetch(
-        `http://localhost:5000/api/products/${id}`,
-        {
-          method: 'DELETE',
-        }
-      );
-      const data = await response.json();
-
-      if (data.success) {
-        alert('✅ Produk berhasil dihapus!');
-        fetchProducts();
-      }
+      await fetch(`${API_URL}/products/${currentProduct._id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(dataToSend),
+      });
+      fetchProducts();
+      if (editModal) editModal.hide();
     } catch (error) {
-      console.error('Error:', error);
-      alert('❌ Gagal menghapus produk');
+      console.error("Gagal mengupdate produk:", error);
     }
   };
 
-  const openModal = (product?: Product) => {
-    if (product) {
-      setEditingProduct(product);
-      setFormData(product);
-    } else {
-      setEditingProduct(null);
-      setFormData({ name: '', price: 0, stock: 0, category: 'Umum' });
+  const handleModalInputChange = (
+    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
+  ) => {
+    if (currentProduct) {
+      const { name, value, type } = e.target;
+      
+      if (type === "number") {
+        if (value === "") {
+          setCurrentProduct({ ...currentProduct, [name]: "" });
+        } else if (!isNaN(parseFloat(value))) {
+          setCurrentProduct({ ...currentProduct, [name]: parseFloat(value) });
+        }
+      } else {
+        setCurrentProduct({ ...currentProduct, [name]: value });
+      }
     }
-    setShowModal(true);
-  };
-
-  const closeModal = () => {
-    setShowModal(false);
-    setEditingProduct(null);
-    setFormData({ name: '', price: 0, stock: 0, category: 'Umum' });
   };
 
   return (
     <>
-      <Container className="mt-4">
-        <Card>
-          <Card.Header className="bg-primary text-white">
-            <div className="d-flex justify-content-between align-items-center">
-              <h4 className="mb-0">📦 Daftar Produk</h4>
-              <Button variant="light" onClick={() => openModal()}>
-                ➕ Tambah Produk
-              </Button>
-            </div>
-          </Card.Header>
-          <Card.Body>
-            {loading ? (
-              <div className="text-center py-5">
-                <Spinner animation="border" variant="primary" />
-                <p className="mt-3">Memuat data...</p>
+      <ContentHeader title="Lihat & Kelola Menu" />
+
+      <Link href="/menu" className="btn btn-outline-secondary mb-3">
+        <i className="bi bi-arrow-left-circle-fill"></i> Kembali
+      </Link>
+
+      <div className="content-card">
+        <div className="table-responsive">
+          <table className="table table-hover align-middle">
+            <thead className="table-light">
+              <tr>
+                <th>Foto</th>
+                <th>ID</th>
+                <th>Nama Menu</th>
+                <th>Kategori</th>
+                <th>Harga</th>
+                <th>Stok</th>
+                <th>Aksi</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr>
+                  <td colSpan={7} className="text-center">Memuat data...</td>
+                </tr>
+              ) : products.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="text-center">Belum ada produk.</td>
+                </tr>
+              ) : (
+                products.map((product) => (
+                  <tr key={product._id}>
+                    <td>
+                      <img
+                        src={product.image || "https://via.placeholder.com/100"}
+                        alt={product.name}
+                        style={{
+                          width: "80px",
+                          height: "80px",
+                          objectFit: "cover",
+                          borderRadius: "8px",
+                        }}
+                      />
+                    </td>
+                    <td>{product._id.slice(-6)}</td>
+                    <td>{product.name}</td>
+                    <td>
+                      <span className="badge bg-secondary">
+                        {product.category}
+                      </span>
+                    </td>
+                    <td>{formatCurrency(product.price)}</td>
+                    <td>{product.stock}</td>
+                    <td>
+                      <button
+                        className="btn btn-warning btn-sm me-2"
+                        onClick={() => openEditModal(product)}
+                      >
+                        <i className="bi bi-pencil-fill"></i> Edit
+                      </button>
+                      <button
+                        className="btn btn-danger btn-sm"
+                        onClick={() => handleDelete(product._id)}
+                      >
+                        <i className="bi bi-trash-fill"></i> Hapus
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div className="modal fade" id="editProductModal" tabIndex={-1}>
+        <div className="modal-dialog modal-dialog-centered">
+          <div className="modal-content">
+            <form onSubmit={handleEditSubmit}>
+              <div className="modal-header">
+                <h5 className="modal-title">Edit Menu</h5>
+                <button
+                  type="button"
+                  className="btn-close"
+                  data-bs-dismiss="modal"
+                ></button>
               </div>
-            ) : (
-              <div className="table-responsive">
-                <Table striped bordered hover>
-                  <thead className="table-dark">
-                    <tr>
-                      <th style={{ width: '50px' }}>No</th>
-                      <th>Nama Produk</th>
-                      <th>Harga</th>
-                      <th>Stock</th>
-                      <th>Kategori</th>
-                      <th style={{ width: '150px' }} className="text-center">
-                        Aksi
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {products.length === 0 ? (
-                      <tr>
-                        <td
-                          colSpan={6}
-                          className="text-center py-5 text-muted"
-                        >
-                          <h3>📦</h3>
-                          <p>Belum ada produk</p>
-                        </td>
-                      </tr>
-                    ) : (
-                      products.map((product, index) => (
-                        <tr key={product._id}>
-                          <td>{index + 1}</td>
-                          <td>
-                            <strong>{product.name}</strong>
-                          </td>
-                          <td>Rp {product.price.toLocaleString('id-ID')}</td>
-                          <td>
-                            <Badge
-                              bg={
-                                product.stock > 10
-                                  ? 'success'
-                                  : product.stock > 0
-                                  ? 'warning'
-                                  : 'danger'
-                              }
-                            >
-                              {product.stock}
-                            </Badge>
-                          </td>
-                          <td>
-                            <Badge bg="info">{product.category}</Badge>
-                          </td>
-                          <td className="text-center">
-                            <Button
-                              variant="warning"
-                              size="sm"
-                              className="me-2"
-                              onClick={() => openModal(product)}
-                            >
-                              ✏️ Edit
-                            </Button>
-                            <Button
-                              variant="danger"
-                              size="sm"
-                              onClick={() =>
-                                product._id && handleDelete(product._id)
-                              }
-                            >
-                              🗑️ Hapus
-                            </Button>
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </Table>
+              <div className="modal-body">
+                {currentProduct && (
+                  <>
+                    <div className="mb-3">
+                      <label htmlFor="edit-name" className="form-label">Nama Menu</label>
+                      <input
+                        type="text"
+                        className="form-control"
+                        id="edit-name"
+                        name="name"
+                        value={currentProduct.name}
+                        onChange={handleModalInputChange}
+                        required
+                      />
+                    </div>
+                    <div className="mb-3">
+                      <label htmlFor="edit-category" className="form-label">Kategori</label>
+                      <select
+                        className="form-select"
+                        id="edit-category"
+                        name="category"
+                        value={currentProduct.category}
+                        onChange={handleModalInputChange}
+                        required
+                      >
+                        <option value="Makanan">Makanan</option>
+                        <option value="Minuman">Minuman</option>
+                        <option value="Cemilan">Cemilan</option>
+                      </select>
+                    </div>
+                    <div className="mb-3">
+                      <label htmlFor="edit-price" className="form-label">Harga (Rp)</label>
+                      <input
+                        type="number"
+                        className="form-control"
+                        id="edit-price"
+                        name="price"
+                        value={currentProduct.price ?? ""}
+                        onChange={handleModalInputChange}
+                        required
+                      />
+                    </div>
+                    <div className="mb-3">
+                      <label htmlFor="edit-stock" className="form-label">Stok</label>
+                      <input
+                        type="number"
+                        className="form-control"
+                        id="edit-stock"
+                        name="stock"
+                        value={currentProduct.stock ?? ""}
+                        onChange={handleModalInputChange}
+                        required
+                      />
+                    </div>
+                    <div className="mb-3">
+                      <label htmlFor="edit-image" className="form-label">URL Foto Menu</label>
+                      <input
+                        type="text"
+                        className="form-control"
+                        id="edit-image"
+                        name="image"
+                        value={currentProduct.image || ""}
+                        onChange={handleModalInputChange}
+                      />
+                    </div>
+                  </>
+                )}
               </div>
-            )}
-          </Card.Body>
-        </Card>
-      </Container>
-
-      {/* Modal Form */}
-      <Modal show={showModal} onHide={closeModal} centered>
-        <Modal.Header closeButton className="bg-primary text-white">
-          <Modal.Title>
-            {editingProduct ? '✏️ Edit Produk' : '➕ Tambah Produk'}
-          </Modal.Title>
-        </Modal.Header>
-        <Form onSubmit={handleSubmit}>
-          <Modal.Body>
-            <Form.Group className="mb-3">
-              <Form.Label className="fw-bold">Nama Produk</Form.Label>
-              <Form.Control
-                type="text"
-                value={formData.name}
-                onChange={(e) =>
-                  setFormData({ ...formData, name: e.target.value })
-                }
-                placeholder="Masukkan nama produk"
-                required
-              />
-            </Form.Group>
-
-            <Form.Group className="mb-3">
-              <Form.Label className="fw-bold">Harga (Rp)</Form.Label>
-              <Form.Control
-                type="number"
-                value={formData.price}
-                onChange={(e) =>
-                  setFormData({
-                    ...formData,
-                    price: parseInt(e.target.value) || 0,
-                  })
-                }
-                placeholder="Masukkan harga"
-                required
-              />
-            </Form.Group>
-
-            <Form.Group className="mb-3">
-              <Form.Label className="fw-bold">Stock</Form.Label>
-              <Form.Control
-                type="number"
-                value={formData.stock}
-                onChange={(e) =>
-                  setFormData({
-                    ...formData,
-                    stock: parseInt(e.target.value) || 0,
-                  })
-                }
-                placeholder="Masukkan stock"
-                required
-              />
-            </Form.Group>
-
-            <Form.Group className="mb-3">
-              <Form.Label className="fw-bold">Kategori</Form.Label>
-              <Form.Select
-                value={formData.category}
-                onChange={(e) =>
-                  setFormData({ ...formData, category: e.target.value })
-                }
-              >
-                <option value="Makanan">Makanan</option>
-                <option value="Minuman">Minuman</option>
-                <option value="Snack">Snack</option>
-                <option value="Umum">Umum</option>
-              </Form.Select>
-            </Form.Group>
-          </Modal.Body>
-          <Modal.Footer>
-            <Button variant="secondary" onClick={closeModal}>
-              ❌ Batal
-            </Button>
-            <Button variant="primary" type="submit">
-              💾 Simpan
-            </Button>
-          </Modal.Footer>
-        </Form>
-      </Modal>
+              <div className="modal-footer">
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  data-bs-dismiss="modal"
+                >
+                  Batal
+                </button>
+                <button type="submit" className="btn btn-primary">
+                  <i className="bi bi-save-fill"></i> Simpan Perubahan
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </div>
     </>
   );
 }

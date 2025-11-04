@@ -1,4 +1,3 @@
-// File: frontend/src/app/transaksi/page.tsx
 "use client";
 
 import { useState, useEffect } from "react";
@@ -8,7 +7,7 @@ const API_URL = 'http://localhost:5000/api';
 interface Transaction {
   _id: string;
   createdAt: string; 
-  total: number; // <-- DISESUAIKAN (dari totalPrice)
+  total: number;
   paymentMethod: string;
   items: {
     name: string;
@@ -90,7 +89,7 @@ export default function TransaksiPage() {
     // ===== PERBAIKAN 1 DI SINI =====
     alert(
         `--- Detail Transaksi ${tx._id.slice(-6)} ---` +
-        `\nTotal: ${formatCurrency(tx.total)}` + // (Diganti dari tx.totalPrice)
+        `\nTotal: ${formatCurrency(tx.total)}` +
         `\nWaktu: ${formatDate(tx.createdAt)}` +
         `\nMetode Bayar: ${tx.paymentMethod || 'N/A'}` +
         `\n\nItem dibeli:${itemsDetail}`
@@ -136,7 +135,6 @@ export default function TransaksiPage() {
                   <tr key={tx._id}>
                     <td>{tx._id.slice(-6)}</td>
                     <td>{formatDate(tx.createdAt)}</td>
-                    {/* ===== PERBAIKAN 2 DI SINI ===== */}
                     <td>{formatCurrency(tx.total)}</td> 
                     <td>
                       <span className={`badge ${tx.paymentMethod === 'Cash' ? 'bg-success' : 'bg-info'}`}>

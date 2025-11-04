@@ -1,4 +1,3 @@
-// File: frontend/src/app/dashboard/page.tsx
 "use client";
 
 import { useEffect, useState } from "react";
@@ -66,9 +65,7 @@ export default function DashboardPage() {
       const todayTransactions = allTransactions.filter((tx: any) => 
         tx.createdAt && tx.createdAt.startsWith(todayStr)
       );
-      
-      // ===== PERBAIKAN 1 DI SINI =====
-      // (Diganti dari tx.totalPrice menjadi tx.total)
+
       const revenueToday = todayTransactions.reduce((sum: number, tx: any) => sum + tx.total, 0); 
       setTotalRevenue(revenueToday);
       
@@ -183,8 +180,6 @@ export default function DashboardPage() {
                                 <span className="fw-bold">{tx._id.slice(-6)}</span>
                                 <small className="text-muted d-block">{tx.items.length} item</small>
                             </div>
-                            {/* ===== PERBAIKAN 2 DI SINI ===== */}
-                            {/* (Diganti dari tx.totalPrice menjadi tx.total) */}
                             <span className="text-success fw-bold">{formatCurrency(tx.total)}</span>
                         </li>
                     ))

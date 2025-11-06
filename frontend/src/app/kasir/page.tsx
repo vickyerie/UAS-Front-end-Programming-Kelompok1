@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-const API_URL = 'http://localhost:5000/api';
+const API_URL = "http://localhost:5000";
 
 interface Product {
   _id: string;
@@ -10,7 +10,7 @@ interface Product {
   price: number;
   stock: number;
   category: string;
-  image: string;
+  gambar: string; // 1. Menggunakan 'gambar' agar konsisten
 }
 interface CartItem extends Product {
   quantity: number;
@@ -59,12 +59,25 @@ export default function KasirPage() {
 
   const fetchProducts = async () => {
     try {
-      const res = await fetch(`${API_URL}/products`);
+      // 1. GANTI /products menjadi /menu
+      const res = await fetch(`${API_URL}/menu`); 
       const productResponse = await res.json();
-      const data: Product[] = productResponse.data || []; 
-      setProducts(data);
 
-      const uniqueCategories = ['Semua', ...new Set(data.map(p => p.category))];
+      // 2. TAMBAHKAN MAPPING INI (PENTING!)
+      // Data dari /menu perlu di-format agar sesuai dgn interface Product
+      const formattedData: Product[] = productResponse.map((p: any) => ({
+        _id: p._id,
+        name: p.nama, // 'nama' dari backend
+        price: parseFloat(p.harga) || 0, // 'harga' (string) diubah jadi number
+        stock: p.stock || 0,
+        category: p.category || 'Makanan',
+        gambar: p.gambar // 'gambar' dari backend (URL Cloudinary)
+      }));
+
+      setProducts(formattedData); // 3. Gunakan data yang sudah diformat
+
+
+      const uniqueCategories = ['Semua', ...new Set(formattedData.map(p => p.category))];
       setCategories(uniqueCategories);
     } catch (error) {
       console.error("Gagal mengambil produk:", error);
@@ -111,6 +124,7 @@ export default function KasirPage() {
 
   const removeFromCart = (productId: string) => {
     const existingItem = cart.find(item => item._id === productId);
+    // Ini baris 114 yang error, _id sudah dihapus:
     if (existingItem) {
       if (existingItem.quantity > 1) {
         setCart(cart.map(item => 
@@ -127,24 +141,31 @@ export default function KasirPage() {
     
     const cashierName = localStorage.getItem('loggedInUser') || 'Unknown Cashier';
     const paidAmount = (method === 'QRIS') ? totalPrice : (parseFloat(amountPaid) || 0);
-    const changeAmount = (method === 'QRIS') ? 0 : change; // Ambil dari state
+    const changeAmount = (method === 'QRIS') ? 0 : change;
 
     const transactionData = {
-      items: cart.map(item => ({
-        productId: item._id, 
-        name: item.name,
-        price: item.price,
-        quantity: item.quantity,
-        subtotal: item.price * item.quantity
-      })),
-      total: totalPrice,
-      payment: paidAmount,
-      change: changeAmount,
-      cashier: cashierName,
-    };
+      // 1. Sesuaikan format 'items' dengan OrderItemSchema
+      items: cart.map(item => ({
+        productId: item._id, 
+        nama: item.name,      // 'name' diubah menjadi 'nama'
+        harga: item.price,    // 'price' diubah menjadi 'harga'
+        quantity: item.quantity
+        // 'subtotal' dihapus karena tidak ada di schema
+      })),
+      
+      // 2. Sesuaikan nama field top-level dengan orderController
+      totalPrice: totalPrice,       // 'total' diubah menjadi 'totalPrice'
+      paymentAmount: paidAmount,  // 'payment' diubah menjadi 'paymentAmount'
+      changeAmount: changeAmount,   // 'change' diubah menjadi 'changeAmount'
+      
+      // 3. Tambahkan paymentMethod (diminta oleh backend)
+      paymentMethod: method
+      
+      // 'cashier' dihapus karena tidak ada di schema
+    };
 
     try {
-      const res = await fetch(`${API_URL}/transactions`, {
+        const res = await fetch(`${API_URL}/api/transactions`, { 
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(transactionData),
@@ -237,8 +258,9 @@ export default function KasirPage() {
               <div key={product._id} className="col-lg-4 col-md-6 col-sm-6 col-6 mb-4" onClick={() => addToCart(product)}>
                 <div className="card h-100 product-item shadow-sm border-0">
                   <img 
-                    src={product.image || 'https://via.placeholder.com/150'} 
-                    className="card-img-top" 
+                    // GANTI BARIS INI:
+                    src={product.gambar || 'https://via.placeholder.com/150'} 
+                    className="card-img-top"
                     alt={product.name} 
                     style={{ height: '150px', objectFit: 'cover' }}
                   />
@@ -362,7 +384,6 @@ export default function KasirPage() {
               <p>Silakan scan QR code di bawah ini untuk membayar:</p>
               <h3 className="fw-bold text-primary">{formatCurrency(qrisTotal)}</h3>
               
-              {/* Tampilkan gambar HANYA jika qrisImage tidak null/kosong */}
               {qrisImage && (
                 <img 
                   src={qrisImage} 

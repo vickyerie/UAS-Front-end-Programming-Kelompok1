@@ -1,6 +1,17 @@
+// frontend/src/app/kasir/page.tsx
 "use client";
 
 import { useEffect, useState } from "react";
+// --- MODIFIKASI: Tambahkan import yang diperlukan ---
+import { useOnlineStatus } from "@/hooks/useOnlineStatus";
+import { syncMenuFromBackend } from "@/lib/syncManager";
+import { 
+  getLocalProducts, 
+  saveOfflineTransaction, 
+  reduceLocalProductStock,
+  OfflineTransaction // Pastikan interface ini diekspor dari offlineStorage.ts
+} from "@/lib/offlineStorage";
+import { v4 as uuidv4 } from 'uuid'; // Install: npm install uuid @types/uuid
 
 const API_URL = "http://localhost:5000";
 
@@ -10,17 +21,12 @@ interface Product {
   price: number;
   stock: number;
   category: string;
-  gambar: string; // 1. Menggunakan 'gambar' agar konsisten
+  gambar: string;
 }
 interface CartItem extends Product {
   quantity: number;
 }
-interface TransactionItem {
-    productId: string;
-    name: string;
-    quantity: number;
-    price: number;
-}
+// ... (Interface TransactionItem tidak terpakai, bisa dihapus) ...
 
 const formatCurrency = (number: number) => {
   return new Intl.NumberFormat('id-ID', {
@@ -31,6 +37,14 @@ const formatCurrency = (number: number) => {
 };
 
 export default function KasirPage() {
+  // --- BARU: Tambahkan hook status online & loading ---
+  const isOnline = useOnlineStatus();
+  // --- TAMBAHKAN STATE INI ---
+  // State untuk melacak apakah komponen sudah "ter-mount" di klien
+  const [isClient, setIsClient] = useState(false);
+  const [isLoading, setIsLoading] = useState(true); // Untuk loading awal
+  const [isProcessing, setIsProcessing] = useState(false); // Untuk tombol bayar
+
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<string[]>(['Semua']);
   const [currentCategory, setCurrentCategory] = useState('Semua');
@@ -48,6 +62,9 @@ export default function KasirPage() {
   const [qrisTotal, setQrisTotal] = useState(0);
   
   useEffect(() => {
+    // --- TAMBAHKAN BARIS INI ---
+    // Saat useEffect berjalan, kita tahu ini 100% di browser.
+    setIsClient(true);
     if (typeof window !== "undefined") {
       const bootstrap = require("bootstrap/dist/js/bootstrap.bundle.min.js");
       const modalEl = document.getElementById('qrisModal');
@@ -57,36 +74,67 @@ export default function KasirPage() {
     }
   }, []);
 
-  const fetchProducts = async () => {
-    try {
-      // 1. GANTI /products menjadi /menu
-      const res = await fetch(`${API_URL}/menu`); 
-      const productResponse = await res.json();
+  // --- MODIFIKASI: Ganti fetchProducts menjadi loadAndSyncProducts ---
+  const loadAndSyncProducts = async () => {
+    setIsLoading(true);
+    console.log('Memuat produk...');
 
-      // 2. TAMBAHKAN MAPPING INI (PENTING!)
-      // Data dari /menu perlu di-format agar sesuai dgn interface Product
-      const formattedData: Product[] = productResponse.map((p: any) => ({
+    try {
+      if (isOnline) {
+        // Jika online, coba sinkronkan menu dari backend dulu
+        console.log('Online, menyinkronkan menu dari backend...');
+        await syncMenuFromBackend();
+      } else {
+        console.log('Offline, memuat menu dari cache lokal...');
+      }
+
+      // Selalu ambil data dari local storage (sumber kebenaran)
+      const localData = getLocalProducts(); 
+      
+      // Format data dari local storage (nama, harga) ke format UI (name, price)
+      const formattedData: Product[] = localData.map((p: any) => ({
         _id: p._id,
-        name: p.nama, // 'nama' dari backend
-        price: parseFloat(p.harga) || 0, // 'harga' (string) diubah jadi number
+        name: p.nama, // 'nama' dari local storage
+        price: parseFloat(p.harga) || 0, // 'harga' dari local storage
         stock: p.stock || 0,
-        category: p.category || 'Makanan',
-        gambar: p.gambar // 'gambar' dari backend (URL Cloudinary)
+        category: p.kategori || 'Makanan',
+        gambar: p.gambar
       }));
 
-      setProducts(formattedData); // 3. Gunakan data yang sudah diformat
-
+      setProducts(formattedData);
 
       const uniqueCategories = ['Semua', ...new Set(formattedData.map(p => p.category))];
       setCategories(uniqueCategories);
     } catch (error) {
-      console.error("Gagal mengambil produk:", error);
+      console.error("Gagal mengambil/sinkronisasi produk:", error);
+      // Jika gagal total, coba lagi muat dari lokal (backup)
+      try {
+        const localData = getLocalProducts();
+        const formattedData: Product[] = localData.map((p: any) => ({ _id: p._id, name: p.nama, price: parseFloat(p.harga) || 0, stock: p.stock, category: p.kategori, gambar: p.gambar }));
+        setProducts(formattedData);
+        const uniqueCategories = ['Semua', ...new Set(formattedData.map(p => p.category))];
+        setCategories(uniqueCategories);
+      } catch (localError) {
+        console.error("Gagal memuat dari cache lokal:", localError);
+        alert("Gagal memuat data menu. Silakan periksa koneksi Anda dan coba lagi.");
+      }
+    } finally {
+      setIsLoading(false);
     }
   };
 
+  // Trigger load/sync saat komponen pertama kali dimuat
   useEffect(() => {
-    fetchProducts();
-  }, []);
+    loadAndSyncProducts();
+  }, []); // Hanya dijalankan sekali saat mount
+
+  // Trigger sync ulang saat kembali online
+  useEffect(() => {
+    if (isOnline) {
+      console.log('Status berubah online, sinkronisasi ulang menu...');
+      loadAndSyncProducts();
+    }
+  }, [isOnline]); // Dijalankan saat status 'isOnline' berubah
 
   useEffect(() => {
     const total = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
@@ -101,15 +149,18 @@ export default function KasirPage() {
   };
 
   const addToCart = (product: Product) => {
-    const existingItem = cart.find(item => item._id === product._id);
-    
+    // Ambil data produk terbaru dari state (yang dari local storage)
     const productInStock = products.find(p => p._id === product._id);
-    if (!productInStock || productInStock.stock === 0) {
+    
+    if (!productInStock || productInStock.stock <= 0) {
       alert('Stok produk habis!');
       return;
     }
+    
+    const existingItem = cart.find(item => item._id === product._id);
 
     if (existingItem) {
+      // Pastikan kuantitas di keranjang tidak melebihi stok
       if (existingItem.quantity < productInStock.stock) {
         setCart(cart.map(item => 
           item._id === product._id ? { ...item, quantity: item.quantity + 1 } : item
@@ -124,7 +175,6 @@ export default function KasirPage() {
 
   const removeFromCart = (productId: string) => {
     const existingItem = cart.find(item => item._id === productId);
-    // Ini baris 114 yang error, _id sudah dihapus:
     if (existingItem) {
       if (existingItem.quantity > 1) {
         setCart(cart.map(item => 
@@ -136,66 +186,114 @@ export default function KasirPage() {
     }
   };
 
-
-  const completeTransaction = async (method: string) => {
+  // --- BARU: Fungsi helper untuk reset keranjang & update stok lokal ---
+  const resetCartAndRefreshStock = () => {
+    setCart([]);
+    setAmountPaid('');
+    setPaymentMethod('Cash');
+    setChange(0);
     
-    const cashierName = localStorage.getItem('loggedInUser') || 'Unknown Cashier';
+    if (qrisModal) qrisModal.hide();
+
+    // Muat ulang data produk dari local storage
+    // untuk menampilkan stok yang baru (setelah dikurangi)
+    loadAndSyncProducts(); 
+  }
+
+  // --- MODIFIKASI: Logika completeTransaction di-upgrade ---
+  const completeTransaction = async (method: string) => {
+    setIsProcessing(true); // Mulai proses
+
     const paidAmount = (method === 'QRIS') ? totalPrice : (parseFloat(amountPaid) || 0);
     const changeAmount = (method === 'QRIS') ? 0 : change;
 
+    // 1. Siapkan data transaksi untuk backend
     const transactionData = {
-      // 1. Sesuaikan format 'items' dengan OrderItemSchema
-      items: cart.map(item => ({
-        productId: item._id, 
-        nama: item.name,      // 'name' diubah menjadi 'nama'
-        harga: item.price,    // 'price' diubah menjadi 'harga'
-        quantity: item.quantity
-        // 'subtotal' dihapus karena tidak ada di schema
-      })),
-      
-      // 2. Sesuaikan nama field top-level dengan orderController
-      totalPrice: totalPrice,       // 'total' diubah menjadi 'totalPrice'
-      paymentAmount: paidAmount,  // 'payment' diubah menjadi 'paymentAmount'
-      changeAmount: changeAmount,   // 'change' diubah menjadi 'changeAmount'
-      
-      // 3. Tambahkan paymentMethod (diminta oleh backend)
-      paymentMethod: method
-      
-      // 'cashier' dihapus karena tidak ada di schema
-    };
+      items: cart.map(item => ({
+        productId: item._id, 
+        nama: item.name,
+        harga: item.price,
+        quantity: item.quantity
+      })),
+      totalPrice: totalPrice,
+      paymentAmount: paidAmount,
+      changeAmount: changeAmount,
+      paymentMethod: method
+    };
 
-    try {
-        const res = await fetch(`${API_URL}/api/transactions`, { 
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(transactionData),
-      });
+    // 2. Siapkan data untuk disimpan di antrean offline (localStorage)
+    //    Kita tambahkan _id sementara, status, dll.
+    const offlineTxData: OfflineTransaction = {
+      ...transactionData,
+      _id: `temp_${uuidv4()}`, // ID unik sementara
+      createdAt: new Date().toISOString(),
+      status: 'pending',
+      localOnly: true
+    };
 
-      if (!res.ok) {
-        const errorData = await res.json();
-        throw new Error(errorData.message || 'Gagal menyimpan transaksi'); 
+    // 3. Fungsi helper untuk menyimpan ke lokal
+    const saveToOfflineQueue = () => {
+      try {
+        console.log('Menyimpan transaksi ke antrean offline...');
+        saveOfflineTransaction(offlineTxData);
+        // Langsung kurangi stok di local storage
+        offlineTxData.items.forEach(item => {
+          reduceLocalProductStock(item.productId, item.quantity);
+        });
+        alert(`Pesanan berhasil disimpan (Offline). Akan disinkronkan saat online.`);
+        resetCartAndRefreshStock();
+      } catch (e) {
+        console.error("Gagal menyimpan ke antrean offline:", e);
+        alert("CRITICAL: Gagal menyimpan pesanan di perangkat. Harap catat manual.");
       }
+    };
 
-      alert(`Pembayaran ${method} berhasil!`);
-      setCart([]);
-      setAmountPaid('');
-      setPaymentMethod('Cash');
-      
-      if (qrisModal) qrisModal.hide();
-      
-      fetchProducts();
 
-    } catch (error: any) {
-      console.error(error);
-      alert(`Terjadi kesalahan: ${error.message}`);
+    // 4. Logika Inti: Online atau Offline?
+    if (isOnline) {
+      // JIKA ONLINE: Coba kirim langsung ke server
+      try {
+        console.log('Online, mengirim transaksi langsung ke server...');
+        
+        // Endpoint ini /api/transactions BUKAN /api/sync/transactions
+        // Ini adalah endpoint untuk 1 transaksi baru
+        const res = await fetch(`${API_URL}/api/transactions`, { 
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(transactionData), // Kirim data standar
+        });
+
+        if (!res.ok) {
+          // Jika server menolak (misal: stok habis di server), anggap gagal
+          const errorData = await res.json();
+          throw new Error(errorData.message || 'Server menolak transaksi'); 
+        }
+
+        // Jika berhasil terkirim online
+        alert(`Pembayaran ${method} berhasil (Online)!`);
+        resetCartAndRefreshStock(); // Reset keranjang & update stok
+
+      } catch (error: any) {
+        // JIKA GAGAL (misal: internet tiba-tiba putus, server down)
+        console.warn(`Gagal mengirim online, beralih ke antrean offline: ${error.message}`);
+        // Gagal? Jangan khawatir, simpan ke antrean offline
+        saveToOfflineQueue();
+      }
+    } else {
+      // JIKA OFFLINE: Langsung simpan ke antrean
+      console.log('Offline, menyimpan transaksi ke antrean...');
+      saveToOfflineQueue();
     }
+    
+    setIsProcessing(false); // Selesai proses
   };
 
   const handleProcessPayment = () => {
     if (cart.length === 0) {
       alert('Keranjang masih kosong!');
       return;
-    }
+  }
+    if (isProcessing) return; // Mencegah klik ganda
 
     if (paymentMethod === 'Cash') {
       const paidAmount = parseFloat(amountPaid) || 0;
@@ -206,6 +304,15 @@ export default function KasirPage() {
       completeTransaction('Cash');
 
     } else if (paymentMethod === 'QRIS') {
+      // Cek jika offline, QRIS mungkin tidak bisa (tergantung sistem Anda)
+      // Untuk simulasi ini, kita anggap QRIS bisa offline (kasir konfirmasi manual)
+      if (!isOnline) {
+        alert("Mode Offline: Simulasi QRIS akan langsung dikonfirmasi.");
+        completeTransaction('QRIS');
+        return;
+      }
+      
+      // Logika QRIS online Anda
       const qrData = `SIMULASI_BAYAR_KE_KANTIN_SEBESAR_${totalPrice}`;
       setQrisImage(`https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(qrData)}`);
       setQrisTotal(totalPrice);
@@ -226,6 +333,18 @@ export default function KasirPage() {
       <div className="product-pane">
         <header className="content-header" style={{ marginBottom: '1rem', padding: 0 }}>
           <h1>Pilih Menu</h1>
+          {/* --- MODIFIKASI BAGIAN INI --- */}
+          <div>
+            Status: {isClient ? ( // Cek apakah sudah di klien
+              isOnline ? 
+                <span className="badge bg-success">Online</span> : 
+                <span className="badge bg-danger">Offline</span>
+            ) : (
+              // Tampilkan ini saat render di server (atau sebelum mount)
+              <span className="badge bg-secondary">...</span> 
+            )}
+          </div>
+          {/* --- AKHIR MODIFIKASI --- */}
           <div className="header-actions">
             <input 
               type="text" 
@@ -251,14 +370,16 @@ export default function KasirPage() {
         </div>
 
         <div className="row product-grid" style={{ maxHeight: 'calc(100vh - 200px)', overflowY: 'auto' }}>
-          {filteredProducts.length === 0 ? (
+          {/* --- BARU: Indikator Loading --- */}
+          {isLoading ? (
+            <p className="text-center text-muted col-12">Memuat menu...</p>
+          ) : filteredProducts.length === 0 ? (
             <p className="text-center text-muted col-12">Produk tidak ditemukan.</p>
           ) : (
             filteredProducts.map(product => (
               <div key={product._id} className="col-lg-4 col-md-6 col-sm-6 col-6 mb-4" onClick={() => addToCart(product)}>
                 <div className="card h-100 product-item shadow-sm border-0">
                   <img 
-                    // GANTI BARIS INI:
                     src={product.gambar || 'https://via.placeholder.com/150'} 
                     className="card-img-top"
                     alt={product.name} 
@@ -286,17 +407,17 @@ export default function KasirPage() {
           ) : (
             cart.map(item => (
               <li key={item._id} className="list-group-item d-flex justify-content-between align-items-center">
-                <div>
-                  <span className="fw-bold d-block">{item.name}</span>
+                <div className="flex-grow-1">
+                  <div className="fw-bold">{item.name}</div>
                   <small className="text-muted">{formatCurrency(item.price)} x {item.quantity}</small>
                 </div>
-                <div>
-                  <strong className="me-3">{formatCurrency(item.price * item.quantity)}</strong>
+                <div className="d-flex align-items-center">
+                  <span className="fw-bold me-3">{formatCurrency(item.price * item.quantity)}</span>
                   <button 
-                    className="btn btn-outline-danger btn-sm p-1 border-0" 
+                    className="btn btn-sm btn-outline-danger"
                     onClick={() => removeFromCart(item._id)}
                   >
-                    <i className="bi bi-trash-fill"></i>
+                    <i className="bi bi-dash-circle"></i>
                   </button>
                 </div>
               </li>
@@ -305,68 +426,60 @@ export default function KasirPage() {
         </ul>
         
         <div className="cart-summary">
-          <label className="form-label fw-bold">Metode Pembayaran</label>
-          <div id="payment-method-options" className="d-flex mb-3">
-            <input 
-              type="radio" 
-              className="btn-check" 
-              name="paymentMethod" 
-              id="payment-cash" 
-              value="Cash" 
-              checked={paymentMethod === 'Cash'}
+          <div className="d-flex justify-content-between align-items-center mb-3 pt-3 border-top">
+            <h4 className="fw-bold mb-0">Total:</h4>
+            <h4 className="fw-bold text-primary mb-0" id="total-price">{formatCurrency(totalPrice)}</h4>
+          </div>
+          
+          <div className="mb-3">
+            <label htmlFor="payment-method" className="form-label fw-bold">Metode Pembayaran</label>
+            <select 
+              className="form-select" 
+              id="payment-method"
+              value={paymentMethod}
               onChange={(e) => setPaymentMethod(e.target.value)}
-            />
-            <label className="btn btn-outline-primary w-50 me-2" htmlFor="payment-cash">
-              <i className="bi bi-cash-coin"></i> Cash
-            </label>
-            <input 
-              type="radio" 
-              className="btn-check" 
-              name="paymentMethod" 
-              id="payment-qris" 
-              value="QRIS"
-              checked={paymentMethod === 'QRIS'}
-              onChange={(e) => setPaymentMethod(e.target.value)}
-            />
-            <label className="btn btn-outline-primary w-50" htmlFor="payment-qris">
-              <i className="bi bi-qr-code"></i> QRIS
-            </label>
+            >
+              <option value="Cash">Cash</option>
+              <option value="QRIS">QRIS</option>
+            </select>
           </div>
 
           {paymentMethod === 'Cash' && (
-            <div id="cash-payment-details">
-              <div className="form-floating mb-3">
+            <>
+              <div className="mb-3">
+                <label htmlFor="amount-paid" className="form-label fw-bold">Jumlah Bayar</label>
                 <input 
                   type="number" 
                   className="form-control" 
                   id="amount-paid" 
-                  placeholder="Masukkan jumlah uang"
+                  placeholder="Masukkan jumlah..."
                   value={amountPaid}
                   onChange={(e) => setAmountPaid(e.target.value)}
                 />
-                <label htmlFor="amount-paid">Jumlah Bayar (Rp)</label>
               </div>
-              <h5 className="d-flex justify-content-between">
-                <span>Kembalian:</span>
-                <span id="change" className={`fw-bold ${change < 0 ? 'text-danger' : ''}`}>
-                  {change < 0 ? `(Kurang) ${formatCurrency(change)}` : formatCurrency(change)}
-                </span>
-              </h5>
-            </div>
+              <div className="alert alert-info">
+                <strong>Kembalian:</strong> <span id="change-amount">{formatCurrency(change)}</span>
+              </div>
+            </>
           )}
 
-          <hr />
-          <h5 className="d-flex justify-content-between">
-            <span>Total:</span>
-            <span id="total-price" className="fw-bold text-primary">{formatCurrency(totalPrice)}</span>
-          </h5>
           <div className="d-grid mt-3">
             <button 
               className="btn btn-primary btn-lg fw-bold" 
               id="btn-process-payment"
               onClick={handleProcessPayment}
+              disabled={isProcessing || isLoading || cart.length === 0} 
             >
-              <i className="bi bi-check-circle-fill"></i> Proses Pembayaran
+              {isProcessing ? (
+                <>
+                  <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                  <span> Memproses...</span>
+                </>
+              ) : (
+                <>
+                  <i className="bi bi-check-circle-fill"></i> Proses Pembayaran
+                </>
+              )}
             </button>
           </div>
         </div>
@@ -383,7 +496,6 @@ export default function KasirPage() {
             <div className="modal-body text-center">
               <p>Silakan scan QR code di bawah ini untuk membayar:</p>
               <h3 className="fw-bold text-primary">{formatCurrency(qrisTotal)}</h3>
-              
               {qrisImage && (
                 <img 
                   src={qrisImage} 
@@ -393,7 +505,6 @@ export default function KasirPage() {
                   style={{ width: '250px', height: '250px' }} 
                 />
               )}
-              
               <p className="text-muted small">Ini adalah simulasi. QR code ini tidak terhubung dengan pembayaran nyata.</p>
             </div>
             <div className="modal-footer d-grid">
@@ -410,7 +521,6 @@ export default function KasirPage() {
           </div>
         </div>
       </div>
-
     </div>
   );
 }

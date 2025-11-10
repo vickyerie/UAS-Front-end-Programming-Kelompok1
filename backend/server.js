@@ -26,7 +26,6 @@ app.use(fileUpload({
   tempFileDir: '/tmp/'
 }));
 
-
 const uri = process.env.MONGODB_URI;
 mongoose.connect(uri)
 .then(() => {
@@ -46,6 +45,7 @@ const menuRouter = require('./routes/menu');
 const orderRoutes = require('./routes/orderRoutes');
 const productRoutes = require('./routes/productRoutes');
 const transactionRoutes = require('./routes/transactionRoutes');
+const syncRoutes = require('./routes/syncRoutes'); // ✅ TAMBAHAN BARU
 
 app.get('/', (req, res) => {
   res.json({ 
@@ -56,7 +56,8 @@ app.get('/', (req, res) => {
       menu: "/menu",
       orders: "/api/orders",
       products: "/api/products",
-      transactions: "/api/transactions"
+      transactions: "/api/transactions",
+      sync: "/api/sync" // ✅ TAMBAHAN BARU
     }
   });
 });
@@ -74,6 +75,7 @@ app.use('/menu', menuRouter);
 app.use('/api/orders', orderRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/transactions', transactionRoutes);
+app.use('/api/sync', syncRoutes); // ✅ TAMBAHAN BARU
 
 app.use((err, req, res, next) => {
   console.error('❌ Error:', err.stack);

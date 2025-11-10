@@ -6,6 +6,7 @@ import 'bootstrap-icons/font/bootstrap-icons.css';
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
+import { GlobalSyncManager } from "../components/GlobalSyncManager";
 
 const Sidebar = () => {
   const pathname = usePathname();
@@ -95,9 +96,7 @@ export default function RootLayout({
   const pathname = usePathname();
   
   const isLoginPage = pathname === '/login'; 
-
   const isRootPage = pathname === '/'; 
-
   const showLayout = !isLoginPage && !isRootPage;
 
   useEffect(() => {
@@ -107,6 +106,17 @@ export default function RootLayout({
   return (
     <html lang="id">
       <body>
+        <head>
+          <meta name="viewport" content="width=device-width, initial-scale=1" />
+          <link rel="manifest" href="/manifest.json" />
+          <meta name="theme-color" content="#0d6efd" /> 
+          {/* Anda juga bisa menambahkan link ke favicon.ico di sini */}
+          <link rel="icon" href="/favicon.ico" />
+        </head>
+        {/* --- TAMBAHKAN KOMPONEN INI --- */}
+        {/* Ini akan aktif di semua halaman (kecuali login/root) */}
+        {showLayout && <GlobalSyncManager />} 
+        
         {showLayout ? (
           <>
             <Sidebar />

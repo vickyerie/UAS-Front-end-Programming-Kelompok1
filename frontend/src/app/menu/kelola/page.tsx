@@ -4,24 +4,23 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
-const API_URL = "http://localhost:5000";
+const API_URL = "http://localhost:5000/api";
 
 interface Product {
   _id: string;
-  name: string;
-  price: number;
+  nama: string;
+  harga: number;
   stock: number;
   category: string;
-  image: string;
+  gambar: string;
 }
 
-const formatCurrency = (number: number) => {
-  return new Intl.NumberFormat("id-ID", {
+const formatCurrency = (number: number) =>
+  new Intl.NumberFormat("id-ID", {
     style: "currency",
     currency: "IDR",
     minimumFractionDigits: 0,
   }).format(number);
-};
 
 const ContentHeader = ({ title }: { title: string }) => (
   <header className="content-header">
@@ -34,57 +33,72 @@ export default function KelolaMenuPage() {
   const [loading, setLoading] = useState(true);
   const [editModal, setEditModal] = useState<any>(null);
   const [currentProduct, setCurrentProduct] = useState<any | null>(null);
-  const [newFileGambar, setNewFileGambar] = useState<File | null>(null); 
-  const router = useRouter(); 
+  const [newFileGambar, setNewFileGambar] = useState<File | null>(null);
+  const router = useRouter();
 
+  // 🔹 Bootstrap Modal init
   useEffect(() => {
     if (typeof window !== "undefined") {
       const bootstrap = require("bootstrap/dist/js/bootstrap.bundle.min.js");
       const modalEl = document.getElementById("editProductModal");
-      if (modalEl) {
-        setEditModal(new bootstrap.Modal(modalEl));
-      }
+      if (modalEl) setEditModal(new bootstrap.Modal(modalEl));
     }
   }, []);
 
-  const fetchProducts = async () => {
-    setLoading(true);
-    try {
-      const res = await fetch(`${API_URL}/menu/`); 
-      const productResponse = await res.json();
-      
-      if (!res.ok)
-        throw new Error(productResponse.message || "Gagal mengambil data produk");
-        
-      const formattedProducts = productResponse.map((p: any) => ({
-          ...p,
-          name: p.nama,
-          price: parseFloat(p.harga) || 0,
-          image: p.gambar,
-          category: p.category || 'Makanan', 
-          stock: p.stock || 0,
-      }));
-        
-      setProducts(formattedProducts || []);
+  // 🔹 Fetch Data Produk dari Backend
+const fetchProducts = async () => {
+  setLoading(true);
+  try {
+    const res = await fetch(`${API_URL}/menu`);
+    const response = await res.json();
 
-    } catch (error) {
-      console.error("Gagal mengambil produk:", error);
+    let dataProduk;
+
+    // Cek apakah backend return { data: [...] }
+    if (response && Array.isArray(response.data)) {
+      dataProduk = response.data;
     }
-    setLoading(false);
-  };
+    // Atau return langsung array tanpa property 'data'
+    else if (Array.isArray(response)) {
+      dataProduk = response;
+    } else {
+      throw new Error(response.message || "Format data produk tidak valid");
+    }
 
+    const parseHarga = (value: string | number): number => {
+      if (typeof value === "number") return value;
+      return parseInt(value.replace(/\./g, ""), 10) || 0;
+};
+
+    // Format ulang untuk tampilan
+    const formatted = dataProduk.map((p: any) => ({
+      _id: p._id,
+      nama: p.nama,
+      harga: parseHarga(p.harga),
+      gambar: p.gambar,
+      category: p.category || "Makanan",
+      stock: p.stock || 0,
+}));
+
+    setProducts(formatted);
+  } catch (error) {
+    console.error("❌ Gagal mengambil produk:", error);
+  }
+  setLoading(false);
+};
+
+  // 🔹 Jalankan fetch + auth check
   useEffect(() => {
-    const token = localStorage.getItem('kasirToken');
-    if (!token) {
-        router.push('/login');
-    }
+    const token = localStorage.getItem("kasirToken");
+    if (!token) router.push("/login");
     fetchProducts();
   }, [router]);
 
+  // 🔹 Hapus Produk
   const handleDelete = async (id: string) => {
     if (confirm("Apakah Anda yakin ingin menghapus menu ini?")) {
       try {
-        await fetch(`${API_URL}/menu/${id}`, { method: "DELETE" }); 
+        await fetch(`${API_URL}/menu/${id}`, { method: "DELETE" });
         fetchProducts();
       } catch (error) {
         console.error("Gagal menghapus produk:", error);
@@ -92,41 +106,42 @@ export default function KelolaMenuPage() {
     }
   };
 
+  // 🔹 Buka Modal Edit
   const openEditModal = (product: Product) => {
-    setNewFileGambar(null); 
+    setNewFileGambar(null);
     setCurrentProduct(product);
     if (editModal) editModal.show();
   };
 
+  // 🔹 Submit Edit Produk
   const handleEditSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentProduct) return;
-    
+
     const formData = new FormData();
-    
-    formData.append('nama', currentProduct.name); 
-    formData.append('harga', currentProduct.price.toString());
-    
-    formData.append('category', currentProduct.category);
-    formData.append('stock', currentProduct.stock.toString());
+    formData.append("nama", currentProduct.nama);
+    formData.append("harga", currentProduct.harga.toString());
+    formData.append("category", currentProduct.category);
+    formData.append("stock", currentProduct.stock.toString());
 
     if (newFileGambar) {
-        formData.append('gambar', newFileGambar);
-    } else if (currentProduct.image === null || currentProduct.image === "") {
-        formData.append('gambar', '');
+      formData.append("gambar", newFileGambar);
+    } else if (!currentProduct.gambar) {
+      formData.append("gambar", "");
     }
 
     try {
-      const res = await fetch(`${API_URL}/menu/update/${currentProduct._id}`, { 
-        method: "PUT",
-        body: formData,
-      });
-      
-      if (!res.ok) {
-        const errorData = await res.json();
-        throw new Error(errorData.message || "Gagal mengupdate produk");
-      }
-      
+      const res = await fetch(
+        `${API_URL}/menu/update/${currentProduct._id}`,
+        {
+          method: "PUT",
+          body: formData,
+        }
+      );
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Gagal mengupdate produk");
+
       fetchProducts();
       if (editModal) editModal.hide();
     } catch (error) {
@@ -134,34 +149,35 @@ export default function KelolaMenuPage() {
     }
   };
 
+  // 🔹 Handle Input Modal
   const handleModalInputChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
   ) => {
     if (currentProduct) {
       const { name, value, type } = e.target;
-      
-      if (type === 'file' && e.target instanceof HTMLInputElement && e.target.files && e.target.files[0]) {
-          setNewFileGambar(e.target.files[0]);
-          setCurrentProduct({ ...currentProduct, image: URL.createObjectURL(e.target.files[0]) }); // Tampilkan preview (opsional)
-          return;
+
+      if (type === "file" && e.target instanceof HTMLInputElement && e.target.files?.[0]) {
+        setNewFileGambar(e.target.files[0]);
+        setCurrentProduct({
+          ...currentProduct,
+          gambar: URL.createObjectURL(e.target.files[0]),
+        });
+        return;
       }
-      
+
       if (type === "number") {
-        if (value === "") {
-          setCurrentProduct({ ...currentProduct, [name]: "" });
-        } else if (!isNaN(parseFloat(value))) {
-          setCurrentProduct({ ...currentProduct, [name]: parseFloat(value) });
-        }
+        setCurrentProduct({ ...currentProduct, [name]: parseFloat(value) || 0 });
       } else {
         setCurrentProduct({ ...currentProduct, [name]: value });
       }
     }
   };
-  
+
+  // 🔹 Hapus Foto Lama
   const removeExistingImage = () => {
     if (currentProduct) {
-        setCurrentProduct({ ...currentProduct, image: "" });
-        setNewFileGambar(null);
+      setCurrentProduct({ ...currentProduct, gambar: "" });
+      setNewFileGambar(null);
     }
   };
 
@@ -189,19 +205,26 @@ export default function KelolaMenuPage() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={7} className="text-center">Memuat data...</td>
+                  <td colSpan={7} className="text-center">
+                    Memuat data...
+                  </td>
                 </tr>
               ) : products.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="text-center">Belum ada produk.</td>
+                  <td colSpan={7} className="text-center">
+                    Belum ada produk.
+                  </td>
                 </tr>
               ) : (
                 products.map((product) => (
                   <tr key={product._id}>
                     <td>
                       <img
-                        src={product.image || "https://via.placeholder.com/100/CCCCCC/808080?text=NO+IMG"}
-                        alt={product.name}
+                        src={
+                          product.gambar ||
+                          "https://via.placeholder.com/100/CCCCCC/808080?text=NO+IMG"
+                        }
+                        alt={product.nama}
                         style={{
                           width: "80px",
                           height: "80px",
@@ -211,13 +234,13 @@ export default function KelolaMenuPage() {
                       />
                     </td>
                     <td>{product._id.slice(-6)}</td>
-                    <td>{product.name}</td>
+                    <td>{product.nama}</td>
                     <td>
                       <span className="badge bg-secondary">
                         {product.category}
                       </span>
                     </td>
-                    <td>{formatCurrency(product.price)}</td>
+                    <td>{formatCurrency(product.harga)}</td>
                     <td>{product.stock}</td>
                     <td>
                       <button
@@ -241,10 +264,11 @@ export default function KelolaMenuPage() {
         </div>
       </div>
 
+      {/* 🔹 Modal Edit Produk */}
       <div className="modal fade" id="editProductModal" tabIndex={-1}>
         <div className="modal-dialog modal-dialog-centered">
           <div className="modal-content">
-            <form onSubmit={handleEditSubmit}> 
+            <form onSubmit={handleEditSubmit}>
               <div className="modal-header">
                 <h5 className="modal-title">Edit Menu</h5>
                 <button
@@ -257,22 +281,21 @@ export default function KelolaMenuPage() {
                 {currentProduct && (
                   <>
                     <div className="mb-3">
-                      <label htmlFor="edit-name" className="form-label">Nama Menu</label>
+                      <label className="form-label">Nama Menu</label>
                       <input
                         type="text"
                         className="form-control"
-                        id="edit-name"
-                        name="name"
-                        value={currentProduct.name}
+                        name="nama"
+                        value={currentProduct.nama}
                         onChange={handleModalInputChange}
                         required
                       />
                     </div>
+
                     <div className="mb-3">
-                      <label htmlFor="edit-category" className="form-label">Kategori</label>
+                      <label className="form-label">Kategori</label>
                       <select
                         className="form-select"
-                        id="edit-category"
                         name="category"
                         value={currentProduct.category}
                         onChange={handleModalInputChange}
@@ -283,67 +306,73 @@ export default function KelolaMenuPage() {
                         <option value="Cemilan">Cemilan</option>
                       </select>
                     </div>
+
                     <div className="mb-3">
-                      <label htmlFor="edit-price" className="form-label">Harga (Rp)</label>
+                      <label className="form-label">Harga (Rp)</label>
                       <input
                         type="number"
                         className="form-control"
-                        id="edit-price"
-                        name="price"
-                        value={currentProduct.price ?? ""}
+                        name="harga"
+                        value={currentProduct.harga ?? ""}
                         onChange={handleModalInputChange}
                         required
                       />
                     </div>
+
                     <div className="mb-3">
-                      <label htmlFor="edit-stock" className="form-label">Stok</label>
+                      <label className="form-label">Stok</label>
                       <input
                         type="number"
                         className="form-control"
-                        id="edit-stock"
                         name="stock"
                         value={currentProduct.stock ?? ""}
                         onChange={handleModalInputChange}
                         required
                       />
                     </div>
-                    
+
                     <div className="mb-3">
-                        <label className="form-label d-block">Foto Menu Saat Ini:</label>
-                        {(currentProduct.image) ? (
-                            <div className="d-flex align-items-center mb-2">
-                                <img
-                                    src={currentProduct.image}
-                                    alt={currentProduct.name}
-                                    style={{ width: "80px", height: "80px", objectFit: "cover", borderRadius: "8px" }}
-                                    className="img-thumbnail me-3"
-                                />
-                                <button
-                                    type="button"
-                                    className="btn btn-sm btn-danger"
-                                    onClick={removeExistingImage}
-                                >
-                                    Hapus Foto
-                                </button>
-                            </div>
-                        ) : (
-                            <p className="text-muted">Tidak ada foto terdaftar.</p>
-                        )}
-                        
-                        <label htmlFor="edit-file" className="form-label mt-2">Ganti Foto Menu</label>
-                        <input
-                          type="file"
-                          className="form-control"
-                          id="edit-file"
-                          name="file"
-                          accept="image/*"
-                          onChange={handleModalInputChange}
-                        />
-                        {newFileGambar && (
-                            <small className="text-success">File baru siap diupload: {newFileGambar.name}</small>
-                        )}
+                      <label className="form-label">Foto Menu Saat Ini</label>
+                      {currentProduct.gambar ? (
+                        <div className="d-flex align-items-center mb-2">
+                          <img
+                            src={currentProduct.gambar}
+                            alt={currentProduct.nama}
+                            style={{
+                              width: "80px",
+                              height: "80px",
+                              objectFit: "cover",
+                              borderRadius: "8px",
+                            }}
+                            className="img-thumbnail me-3"
+                          />
+                          <button
+                            type="button"
+                            className="btn btn-sm btn-danger"
+                            onClick={removeExistingImage}
+                          >
+                            Hapus Foto
+                          </button>
+                        </div>
+                      ) : (
+                        <p className="text-muted">Tidak ada foto terdaftar.</p>
+                      )}
+
+                      <label className="form-label mt-2">
+                        Ganti Foto Menu
+                      </label>
+                      <input
+                        type="file"
+                        className="form-control"
+                        accept="image/*"
+                        onChange={handleModalInputChange}
+                      />
+                      {newFileGambar && (
+                        <small className="text-success">
+                          File baru siap diupload: {newFileGambar.name}
+                        </small>
+                      )}
                     </div>
-                    
                   </>
                 )}
               </div>

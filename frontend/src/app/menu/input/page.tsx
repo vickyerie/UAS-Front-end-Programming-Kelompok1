@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
-const API_URL = 'http://localhost:5000/menu/add'; 
+const API_URL = 'http://localhost:5000/api/menu'; 
 
 const ContentHeader = ({ title }: { title: string }) => {
     return (
@@ -50,7 +50,7 @@ export default function InputMenuPage() {
     }
 
     try {
-      const res = await fetch(API_URL, {
+      const res = await fetch(`${API_URL}/add`, {
         method: 'POST',
         body: formData, 
         headers: {

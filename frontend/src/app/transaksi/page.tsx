@@ -1,4 +1,3 @@
-// app/transaksi/page.tsx (VERSI PERBAIKAN LENGKAP)
 "use client";
 
 import { useState, useEffect } from "react";
@@ -63,45 +62,62 @@ export default function TransaksiPage() {
   const [loading, setLoading] = useState(true);
   const [dateFilter, setDateFilter] = useState('');
 
-  // Fetch products untuk mendapatkan gambar
+  // 🔹 Ambil data produk (menu)
   const fetchProducts = async () => {
-    try {
-      const res = await fetch('http://localhost:5000/menu');
-      const data = await res.json();
-      setProducts(data);
-    } catch (error) {
-      console.error("Gagal mengambil data produk:", error);
-    }
-  };
+  try {
+    const res = await fetch(`${API_URL}/menu`);
+    const response = await res.json();
 
+    let dataProduk;
+
+    // kalau backend return { success, data }
+    if (response && Array.isArray(response.data)) {
+      dataProduk = response.data;
+    }
+    // kalau backend langsung return array
+    else if (Array.isArray(response)) {
+      dataProduk = response;
+    } else {
+      throw new Error(response.message || "Format data produk tidak valid");
+    }
+
+    setProducts(dataProduk);
+  } catch (error) {
+    console.error("❌ Gagal mengambil data produk:", error);
+  }
+};
+
+
+  // 🔹 Ambil data transaksi
   const fetchTransactions = async () => {
     setLoading(true);
     try {
       const res = await fetch(`${API_URL}/transactions`);
       const transactionResponse = await res.json();
 
-      if (!transactionResponse.success) {
-        throw new Error(transactionResponse.message || 'Gagal mengambil data');
+      if (!res.ok || !transactionResponse.success || !Array.isArray(transactionResponse.data)) {
+        throw new Error(transactionResponse.message || 'Gagal mengambil data transaksi');
       }
 
-      const data: Transaction[] = transactionResponse.data || [];
-      const sortedData = data.sort((a, b) => 
+      const sortedData = transactionResponse.data.sort((a: Transaction, b: Transaction) =>
         new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
       );
 
       setTransactions(sortedData);
       setFilteredTransactions(sortedData);
     } catch (error) {
-      console.error("Gagal mengambil transaksi:", error);
+      console.error("❌ Gagal mengambil transaksi:", error);
     }
     setLoading(false);
   };
 
+  // 🔹 Jalankan fetch saat pertama kali
   useEffect(() => {
     fetchProducts();
     fetchTransactions();
   }, []);
 
+  // 🔹 Filter tanggal transaksi
   useEffect(() => {
     if (!dateFilter) {
       setFilteredTransactions(transactions);
@@ -112,11 +128,14 @@ export default function TransaksiPage() {
     }
   }, [dateFilter, transactions]);
 
+  // 🔹 Ambil gambar produk
   const getProductImage = (productId: string, productName: string) => {
+    if (!Array.isArray(products)) return 'https://via.placeholder.com/50';
     const product = products.find(p => p._id === productId || p.nama === productName);
     return product?.gambar || 'https://via.placeholder.com/50';
   };
 
+  // 🔹 Tampilkan detail transaksi
   const showDetail = (tx: Transaction) => {
     const itemsDetail = tx.items.map(item =>
       `\n- ${item.nama} (x${item.quantity}) - ${formatCurrency(item.harga * item.quantity)}`
